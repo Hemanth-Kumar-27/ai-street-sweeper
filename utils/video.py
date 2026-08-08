@@ -15,6 +15,7 @@ class VideoProcessor:
         print("Video Path:", config.VIDEO_PATH)
 
         self.cap = cv2.VideoCapture(config.VIDEO_PATH)
+        self.roi_mask = None
 
         print("Opened:", self.cap.isOpened())
 
@@ -35,22 +36,35 @@ class VideoProcessor:
             (config.FRAME_WIDTH, config.FRAME_HEIGHT)
         )
 
+        if self.roi_mask is None:
+            self.roi_mask = self._create_roi_mask(frame.shape[:2])
+
         return frame
 
     # -------------------------------------
 
     def get_roi(self, frame):
-        h, w = frame.shape[:2]
+        if self.roi_mask is None:
+            self.roi_mask = self._create_roi_mask(frame.shape[:2])
 
-        # Larger trapezoidal ROI
+        roi = cv2.bitwise_and(
+            frame,
+            frame,
+            mask=self.roi_mask
+        )
+
+        return roi, self.roi_mask
+
+    def _create_roi_mask(self, size):
+        h, w = size
+
         points = np.array([
-            (int(0.2 * w), int(0.0 * h)),  # Top-left
-            (int(0.7 * w), int(0.0 * h)),  # Top-right
+            (int(0.3 * w), int(0.0 * h)),  # Top-left
+            (int(0.6 * w), int(0.0 * h)),  # Top-right
             (int(0.98 * w), int(0.98 * h)),  # Bottom-right
             (int(0.02 * w), int(0.98 * h))  # Bottom-left
         ], dtype=np.int32)
 
-        # ROI mask
         mask = np.zeros(
             (h, w),
             dtype=np.uint8
@@ -62,14 +76,7 @@ class VideoProcessor:
             255
         )
 
-        # ROI image for dashboard display
-        roi = cv2.bitwise_and(
-            frame,
-            frame,
-            mask=mask
-        )
-
-        return roi, mask
+        return mask
 
     def get_cnn_roi(self, frame):
         h, w = frame.shape[:2]

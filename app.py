@@ -21,11 +21,11 @@ ROOT_DIR = Path(__file__).resolve().parent
 if ROOT_DIR.name == "AI_Street_Sweeper" and str(ROOT_DIR.parent) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR.parent))
 
-from AI_Street_Sweeper.utils.video import VideoProcessor
-from AI_Street_Sweeper.utils.predictor import DebrisPredictor
-from AI_Street_Sweeper.utils.controller import Controller
-from AI_Street_Sweeper.utils.power import PowerCalculator
-from AI_Street_Sweeper.utils.segmentation import Segmentation
+from utils.video import VideoProcessor
+from utils.predictor import DebrisPredictor
+from utils.controller import Controller
+from utils.power import PowerCalculator
+from utils.segmentation import Segmentation
 
 
 class StatCard(QFrame):
@@ -43,6 +43,7 @@ class StatCard(QFrame):
         self.value_label = QLabel("--")
         self.value_label.setFont(QFont("Segoe UI", 24, QFont.Bold))
         self.value_label.setStyleSheet("color: white;")
+        self.value_label.setTextFormat(Qt.RichText)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
@@ -88,6 +89,9 @@ class MainWindow(QMainWindow):
             "saving": 0,
             "road_roi": None,
         }
+        self.normal_power = self.power.max_power * 0.5
+        self.ui_refresh_ms = 40
+        self.segment_frame_interval = 30
         self.inference_thread = None
 
         self._build_ui()
@@ -143,17 +147,17 @@ class MainWindow(QMainWindow):
         stats_layout.setSpacing(12)
 
         self.prediction_card = StatCard("DEBRIS LEVEL", "#A855F7")
-        self.coverage_card = StatCard("COVERAGE", "#4DA3FF")
-        self.brush_card = StatCard("BRUSH RPM", "#FF9F1C")
-        self.fan_card = StatCard("FAN RPM", "#33D9B2")
-        self.power_card = StatCard("POWER", "#FFD43B")
+        self.brush_card = StatCard("BRUSH", "#FF9F1C")
+        self.fan_card = StatCard("FAN", "#33D9B2")
+        self.normal_power_card = StatCard("NORMAL POWER", "#4DA3FF")
+        self.adaptive_power_card = StatCard("ADAPTIVE POWER", "#FFD43B")
         self.saving_card = StatCard("ENERGY SAVING", "#5BE37D")
 
         stats_layout.addWidget(self.prediction_card)
-        stats_layout.addWidget(self.coverage_card)
         stats_layout.addWidget(self.brush_card)
         stats_layout.addWidget(self.fan_card)
-        stats_layout.addWidget(self.power_card)
+        stats_layout.addWidget(self.normal_power_card)
+        stats_layout.addWidget(self.adaptive_power_card)
         stats_layout.addWidget(self.saving_card)
 
         main_layout.addLayout(stats_layout)
@@ -161,7 +165,7 @@ class MainWindow(QMainWindow):
     def _start_timer(self):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(30)
+        self.timer.start(self.ui_refresh_ms)
 
     def to_pixmap(self, frame):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -170,23 +174,29 @@ class MainWindow(QMainWindow):
         image = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
         return QPixmap.fromImage(image.copy())
 
+    def overlay_roi(self, frame, mask):
+        overlay = frame.copy()
+        overlay[mask == 255] = (0, 255, 0)
+        return cv2.addWeighted(frame, 0.7, overlay, 0.3, 0)
+
     def update_frame(self):
         frame = self.video.get_frame()
         if frame is None:
             return
 
+        roi, roi_mask = self.video.get_roi(frame)
+        frame_with_roi = self.overlay_roi(frame, roi_mask)
+
         self.original_video.setPixmap(
-            self.to_pixmap(frame).scaled(
+            self.to_pixmap(frame_with_roi).scaled(
                 self.original_video.size(),
                 Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
+                Qt.FastTransformation,
             )
         )
-
-        roi, roi_mask = self.video.get_roi(frame)
         self.frame_counter += 1
 
-        if self.frame_counter % 15 == 0:
+        if self.frame_counter % self.segment_frame_interval == 0:
             self.start_inference(frame, roi, roi_mask)
 
         with self.inference_lock:
@@ -197,7 +207,7 @@ class MainWindow(QMainWindow):
                 self.to_pixmap(current_results["road_roi"]).scaled(
                     self.road_video.size(),
                     Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation,
+                    Qt.FastTransformation,
                 )
             )
 
@@ -206,30 +216,53 @@ class MainWindow(QMainWindow):
             {"clean": 0.25, "low": 0.50, "medium": 0.75, "high": 1.0}.get(current_results["prediction"].lower(), 0.0),
         )
 
-        self.coverage_card.update_stat(
-            f"{current_results['coverage']:.1f}%",
-            current_results["coverage"] / 100,
-        )
+        brush_percent = int(min(current_results["brush_rpm"] / 340, 1.0) * 100)
+        fan_percent = int(min(current_results["fan_rpm"] / 3000, 1.0) * 100)
+
+        self.brush_card.title_label.setText(f"BRUSH ({brush_percent}%)")
+        self.fan_card.title_label.setText(f"FAN ({fan_percent}%)")
 
         self.brush_card.update_stat(
-            f"{current_results['brush_rpm']} RPM",
+            f"{self.get_level_label(current_results['brush_rpm'], 'brush')} - {current_results['brush_rpm']} RPM",
             min(current_results["brush_rpm"] / 340, 1.0),
         )
 
         self.fan_card.update_stat(
-            f"{current_results['fan_rpm']} RPM",
+            f"{self.get_level_label(current_results['fan_rpm'], 'fan')} - {current_results['fan_rpm']} RPM",
             min(current_results["fan_rpm"] / 3000, 1.0),
         )
 
-        self.power_card.update_stat(
+        self.normal_power_card.update_stat(
+            f"{self.normal_power:.2f} kW",
+            min(self.normal_power / self.power.max_power, 1.0),
+        )
+
+        self.adaptive_power_card.update_stat(
             f"{current_results['adaptive_power']:.2f} kW",
-            min(current_results["adaptive_power"] / 3.2, 1.0),
+            min(current_results["adaptive_power"] / self.power.max_power, 1.0),
         )
 
         self.saving_card.update_stat(
             f"{current_results['saving']:.1f}%",
             min(current_results["saving"] / 100, 1.0),
         )
+
+    def get_level_label(self, rpm: int, control_type: str) -> str:
+        if control_type == "brush":
+            if rpm < 180:
+                return "LOW"
+            if rpm < 270:
+                return "MEDIUM"
+            return "HIGH"
+
+        if control_type == "fan":
+            if rpm < 1800:
+                return "LOW"
+            if rpm < 2600:
+                return "MEDIUM"
+            return "HIGH"
+
+        return "UNKNOWN"
 
     def run_inference(self, frame, roi, roi_mask):
         prediction_label, confidence_score = self.predictor.predict(roi)

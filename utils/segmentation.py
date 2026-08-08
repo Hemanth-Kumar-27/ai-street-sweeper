@@ -13,7 +13,7 @@ from transformers import (
     AutoModelForSemanticSegmentation,
 )
 
-from AI_Street_Sweeper import config
+import config
 
 
 class Segmentation:
