@@ -4,7 +4,7 @@ AI Street Sweeper is a prototype control system for an intelligent street sweepi
 
 ## Project Overview
 
-The application is built with a GUI using `customtkinter` and processes a video stream to:
+The application is built with a Qt-based GUI using `PySide6` and processes a video stream to:
 - display the original video feed
 - compute a road region of interest (ROI)
 - perform semantic road segmentation with SegFormer
@@ -43,7 +43,7 @@ The main dependencies include:
 - `opencv-python`
 - `numpy`
 - `Pillow`
-- `customtkinter`
+- `PySide6`
 - `transformers`
 - `torch`
 - `torchvision`
@@ -88,7 +88,7 @@ python Test.py
 ## Notes
 
 - The current `config.py` includes an absolute path for `VIDEO_PATH`. Update this path if your repository is moved or if you want to test a different video.
-- The GUI updates predictions and segmentation results periodically (every 60 frames).
+- The GUI updates predictions and segmentation results periodically (every 15 frames).
 - The fuzzy logic controller maps debris severity to brush and fan RPM settings.
 
 ## Future Improvements

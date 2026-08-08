@@ -1,586 +1,276 @@
+﻿import sys
 import threading
-import customtkinter as ctk
+import cv2
+from pathlib import Path
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QImage, QPixmap, QFont
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QLabel,
+    QVBoxLayout,
+    QHBoxLayout,
+    QProgressBar,
+    QFrame,
+    QSizePolicy,
+)
+
+# Ensure the package root is importable when running app.py directly.
+ROOT_DIR = Path(__file__).resolve().parent
+if ROOT_DIR.name == "AI_Street_Sweeper" and str(ROOT_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR.parent))
+
 from AI_Street_Sweeper.utils.video import VideoProcessor
-from AI_Street_Sweeper.utils.image_converter import ImageConverter
 from AI_Street_Sweeper.utils.predictor import DebrisPredictor
 from AI_Street_Sweeper.utils.controller import Controller
 from AI_Street_Sweeper.utils.power import PowerCalculator
 from AI_Street_Sweeper.utils.segmentation import Segmentation
 
-# =====================================================
-# APPEARANCE
-# =====================================================
 
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
-
-# =====================================================
-# COLORS
-# =====================================================
-
-BG_COLOR = "#141414"
-MAIN_CARD = "#1F2A44"
-HEADER = "#1B2954"
-BORDER = "#2E7DFF"
-
-PURPLE = "#A855F7"
-BLUE = "#4DA3FF"
-ORANGE = "#FF9F1C"
-CYAN = "#33D9B2"
-YELLOW = "#FFD43B"
-GREEN = "#5BE37D"
-
-TEXT = "#F5F5F5"
-
-# =====================================================
-# LOAD VIDEO
-# =====================================================
-
-video = VideoProcessor()
-
-predictor = DebrisPredictor()
-
-controller = Controller()
-
-power = PowerCalculator()
-
-segmenter = Segmentation()
-
-# =====================================================
-# VARIABLE
-# =====================================================
-prediction = "clean"
-confidence = 0
-frame_counter = 0
-brush_rpm = 0
-fan_rpm = 0
-adaptive_power = 0
-saving = 0
-coverage = 0
-
-inference_lock = threading.Lock()
-model_results = {
-    "prediction": prediction,
-    "confidence": confidence,
-    "coverage": coverage,
-    "brush_rpm": brush_rpm,
-    "fan_rpm": fan_rpm,
-    "adaptive_power": adaptive_power,
-    "saving": saving,
-    "road_roi": None,
-    "road_mask": None,
-}
-
-inference_thread = None
-
-# =====================================================
-# INFERENCE WORKER
-# =====================================================
-
-def run_inference(frame, roi, roi_mask):
-    global model_results
-
-    prediction_label, confidence_score = predictor.predict(
-        roi
-    )
-
-    road_roi, road_mask, coverage_score = segmenter.process(
-        frame,
-        roi_mask
-    )
-
-    settings = controller.get_settings(
-        prediction_label
-    )
-
-    brush_speed = settings["brush"]
-    fan_speed = settings["fan"]
-
-    power_result = power.calculate(
-        brush_speed,
-        fan_speed
-    )
-
-    with inference_lock:
-        model_results.update({
-            "prediction": prediction_label,
-            "confidence": confidence_score,
-            "coverage": coverage_score,
-            "brush_rpm": brush_speed,
-            "fan_rpm": fan_speed,
-            "adaptive_power": power_result["power"],
-            "saving": power_result["saving"],
-            "road_roi": road_roi,
-            "road_mask": road_mask,
-        })
-
-
-def start_inference(frame, roi, roi_mask):
-    global inference_thread
-
-    if inference_thread is None or not inference_thread.is_alive():
-        inference_thread = threading.Thread(
-            target=run_inference,
-            args=(frame.copy(), roi.copy(), roi_mask.copy()),
-            daemon=True
-        )
-        inference_thread.start()
-
-# =====================================================
-# WINDOW
-# =====================================================
-
-app = ctk.CTk()
-
-app.title("AI Street Sweeper Control System")
-
-app.state("zoomed")
-
-app.configure(fg_color=BG_COLOR)
-
-
-# =====================================================
-# MAIN
-# =====================================================
-
-main = ctk.CTkFrame(
-    app,
-    fg_color=BG_COLOR
-)
-
-main.pack(
-    fill="both",
-    expand=True,
-    padx=12,
-    pady=12
-)
-
-
-# =====================================================
-# HEADER
-# =====================================================
-
-header = ctk.CTkFrame(
-    main,
-    fg_color=HEADER,
-    corner_radius=18,
-    border_width=1,
-    border_color=BORDER,
-    height=85
-)
-
-header.pack(
-    fill="x",
-    pady=(5, 18)
-)
-
-header.pack_propagate(False)
-
-
-title = ctk.CTkLabel(
-    header,
-    text="AI STREET SWEEPER CONTROL SYSTEM",
-    font=("Segoe UI", 34, "bold"),
-    text_color=TEXT
-)
-
-title.pack(expand=True)
-
-
-# =====================================================
-# VIDEO SECTION
-# =====================================================
-
-video_section = ctk.CTkFrame(
-    main,
-    fg_color=BG_COLOR
-)
-
-video_section.pack(
-    fill="both",
-    expand=True,
-    pady=(0, 18)
-)
-
-video_section.grid_columnconfigure(0, weight=1)
-video_section.grid_columnconfigure(1, weight=1)
-video_section.grid_rowconfigure(0, weight=1)
-
-
-# =====================================================
-# ORIGINAL VIDEO
-# =====================================================
-
-left_panel = ctk.CTkFrame(
-    video_section,
-    fg_color=MAIN_CARD,
-    corner_radius=18,
-    border_width=1,
-    border_color=BORDER
-)
-
-left_panel.grid(
-    row=0,
-    column=0,
-    padx=(0, 10),
-    sticky="nsew"
-)
-
-
-ctk.CTkLabel(
-    left_panel,
-    text="ORIGINAL VIDEO",
-    text_color=PURPLE,
-    font=("Segoe UI", 22, "bold")
-).pack(pady=(15, 10))
-
-
-video_display = ctk.CTkLabel(
-    left_panel,
-    text="ORIGINAL VIDEO",
-    font=("Segoe UI", 20),
-    text_color="#111111",
-    fg_color="#D5DCE5",
-    corner_radius=12
-)
-
-video_display.pack(
-    fill="both",
-    expand=True,
-    padx=18,
-    pady=(0, 18)
-)
-
-
-# =====================================================
-# SEGMENTED ROAD / ROI
-# =====================================================
-
-right_panel = ctk.CTkFrame(
-    video_section,
-    fg_color=MAIN_CARD,
-    corner_radius=18,
-    border_width=1,
-    border_color=BORDER
-)
-
-right_panel.grid(
-    row=0,
-    column=1,
-    padx=(10, 0),
-    sticky="nsew"
-)
-
-
-ctk.CTkLabel(
-    right_panel,
-    text="SEGMENTED ROAD (ROI)",
-    text_color=CYAN,
-    font=("Segoe UI", 22, "bold")
-).pack(pady=(15, 10))
-
-
-road_display = ctk.CTkLabel(
-    right_panel,
-    text="ROAD ROI",
-    font=("Segoe UI", 20),
-    text_color="#111111",
-    fg_color="#D5DCE5",
-    corner_radius=12
-)
-
-road_display.pack(
-    fill="both",
-    expand=True,
-    padx=18,
-    pady=(0, 18)
-)
-
-
-# =====================================================
-# DASHBOARD
-# =====================================================
-
-dashboard = ctk.CTkFrame(
-    main,
-    fg_color=MAIN_CARD,
-    corner_radius=14,
-    border_width=1,
-    border_color="#244C92",
-    height=155
-)
-
-dashboard.pack(
-    fill="x",
-    padx=8,
-    pady=(0, 8)
-)
-
-dashboard.pack_propagate(False)
-
-
-# =====================================================
-# CARD FUNCTION
-# =====================================================
-
-def create_card(title, color):
-
-    frame = ctk.CTkFrame(
-        dashboard,
-        fg_color="#263653",
-        corner_radius=14,
-        border_width=1,
-        border_color="#244C92"
-    )
-
-    frame.pack(
-        side="left",
-        fill="both",
-        expand=True,
-        padx=6,
-        pady=8
-    )
-
-    ctk.CTkLabel(
-        frame,
-        text=title,
-        font=("Segoe UI", 16, "bold"),
-        text_color=color
-    ).pack(pady=(12, 4))
-
-    value = ctk.CTkLabel(
-        frame,
-        text="--",
-        font=("Segoe UI", 30, "bold"),
-        text_color=color
-    )
-
-    value.pack()
-
-    bar = ctk.CTkProgressBar(
-        frame,
-        height=8,
-        progress_color=color,
-        fg_color="#555555"
-    )
-
-    bar.pack(
-        fill="x",
-        padx=18,
-        pady=(8, 10)
-    )
-
-    bar.set(0)
-
-    return value, bar
-
-
-# =====================================================
-# SIX PARAMETERS
-# =====================================================
-
-prediction_value, prediction_bar = create_card(
-    "🟣 DEBRIS LEVEL",
-    PURPLE
-)
-
-coverage_value, coverage_bar = create_card(
-    "▧ COVERAGE",
-    BLUE
-)
-
-brush_value, brush_bar = create_card(
-    "🟠 BRUSH RPM",
-    ORANGE
-)
-
-fan_value, fan_bar = create_card(
-    "◉ FAN RPM",
-    CYAN
-)
-
-power_value, power_bar = create_card(
-    "⚡ POWER",
-    YELLOW
-)
-
-saving_value, saving_bar = create_card(
-    "🌿 ENERGY SAVING",
-    GREEN
-)
-
-
-# =====================================================
-# FOOTER
-# =====================================================
-
-footer = ctk.CTkFrame(
-    main,
-    fg_color=HEADER,
-    height=28,
-    corner_radius=8
-)
-
-footer.pack(
-    fill="x",
-    pady=(0, 2)
-)
-
-footer.pack_propagate(False)
-
-
-ctk.CTkLabel(
-    footer,
-    text="● SYSTEM READY",
-    text_color=GREEN,
-    font=("Segoe UI", 12, "bold")
-).pack(
-    side="left",
-    padx=12
-)
-
-
-ctk.CTkLabel(
-    footer,
-    text="AI Street Sweeper",
-    text_color=CYAN,
-    font=("Segoe UI", 12, "bold")
-).pack(
-    side="right",
-    padx=12
-)
-
-# =====================================================
-# VIDEO LOOP
-# =====================================================
-
-def update_video():
-
-    global frame_counter
-    global prediction
-    global confidence
-    global brush_rpm
-    global fan_rpm
-    global adaptive_power
-    global saving
-    global coverage
-
-    frame = video.get_frame()
-
-    if frame is None:
-        app.after(30, update_video)
-        return
-
-    # -----------------------------
-    # Original Video
-    # -----------------------------
-
-    image = ImageConverter.convert(frame)
-
-    video_display.configure(
-        image=image,
-        text=""
-    )
-
-    video_display.image = image
-
-    # -----------------------------
-    # Trapezoid ROI
-    # -----------------------------
-
-    roi, roi_mask = video.get_roi(frame)
-
-    # -----------------------------
-    # CNN + SegFormer
-    # -----------------------------
-
-    frame_counter += 1
-
-    if frame_counter % 20== 0:
-        start_inference(
-            frame,
-            roi,
-            roi_mask
+class StatCard(QFrame):
+    def __init__(self, title: str, color: str, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setStyleSheet(
+            "QFrame { background-color: #1F2A44; border-radius: 12px; }"
         )
 
-    with inference_lock:
-        current_results = model_results.copy()
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        self.title_label.setFont(QFont("Segoe UI", 12))
 
-    if current_results["road_roi"] is not None:
-        segmented_image = ImageConverter.convert(
-            current_results["road_roi"]
+        self.value_label = QLabel("--")
+        self.value_label.setFont(QFont("Segoe UI", 24, QFont.Bold))
+        self.value_label.setStyleSheet("color: white;")
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        self.progress.setStyleSheet(
+            "QProgressBar { background-color: #333333; border-radius: 6px; } "
+            f"QProgressBar::chunk {{ background-color: {color}; border-radius: 6px; }}"
         )
 
-        road_display.configure(
-            image=segmented_image,
-            text=""
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.value_label)
+        layout.addWidget(self.progress)
+
+    def update_stat(self, text: str, progress: float):
+        self.value_label.setText(text)
+        self.progress.setValue(min(max(int(progress * 100), 0), 100))
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("AI Street Sweeper Control System")
+        self.setMinimumSize(1200, 720)
+
+        self.video = VideoProcessor()
+        self.predictor = DebrisPredictor()
+        self.controller = Controller()
+        self.power = PowerCalculator()
+        self.segmenter = Segmentation()
+
+        self.frame_counter = 0
+        self.inference_lock = threading.Lock()
+        self.model_results = {
+            "prediction": "clean",
+            "confidence": 0,
+            "coverage": 0,
+            "brush_rpm": 0,
+            "fan_rpm": 0,
+            "adaptive_power": 0,
+            "saving": 0,
+            "road_roi": None,
+        }
+        self.inference_thread = None
+
+        self._build_ui()
+        self._start_timer()
+
+    def _build_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+
+        main_layout = QVBoxLayout(central)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+
+        header = QLabel("AI STREET SWEEPER CONTROL SYSTEM")
+        header.setStyleSheet("color: white; font-size: 28px; font-weight: bold;")
+        header.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(header)
+
+        video_layout = QHBoxLayout()
+        video_layout.setSpacing(12)
+
+        self.original_title = QLabel("Original Video")
+        self.original_title.setAlignment(Qt.AlignCenter)
+        self.original_title.setStyleSheet("color: #FFFFFF; font-size: 16px; font-weight: bold;")
+        self.original_video = QLabel()
+        self.original_video.setAlignment(Qt.AlignCenter)
+        self.original_video.setStyleSheet("background-color: #D5DCE5; border-radius: 12px;")
+        self.original_video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.original_video.setMinimumHeight(360)
+
+        original_container = QVBoxLayout()
+        original_container.addWidget(self.original_title)
+        original_container.addWidget(self.original_video)
+
+        self.road_title = QLabel("Segmented Road")
+        self.road_title.setAlignment(Qt.AlignCenter)
+        self.road_title.setStyleSheet("color: #FFFFFF; font-size: 16px; font-weight: bold;")
+        self.road_video = QLabel()
+        self.road_video.setAlignment(Qt.AlignCenter)
+        self.road_video.setStyleSheet("background-color: #D5DCE5; border-radius: 12px;")
+        self.road_video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.road_video.setMinimumHeight(360)
+
+        road_container = QVBoxLayout()
+        road_container.addWidget(self.road_title)
+        road_container.addWidget(self.road_video)
+
+        video_layout.addLayout(original_container)
+        video_layout.addLayout(road_container)
+        main_layout.addLayout(video_layout)
+
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(12)
+
+        self.prediction_card = StatCard("DEBRIS LEVEL", "#A855F7")
+        self.coverage_card = StatCard("COVERAGE", "#4DA3FF")
+        self.brush_card = StatCard("BRUSH RPM", "#FF9F1C")
+        self.fan_card = StatCard("FAN RPM", "#33D9B2")
+        self.power_card = StatCard("POWER", "#FFD43B")
+        self.saving_card = StatCard("ENERGY SAVING", "#5BE37D")
+
+        stats_layout.addWidget(self.prediction_card)
+        stats_layout.addWidget(self.coverage_card)
+        stats_layout.addWidget(self.brush_card)
+        stats_layout.addWidget(self.fan_card)
+        stats_layout.addWidget(self.power_card)
+        stats_layout.addWidget(self.saving_card)
+
+        main_layout.addLayout(stats_layout)
+
+    def _start_timer(self):
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_frame)
+        self.timer.start(30)
+
+    def to_pixmap(self, frame):
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb.shape
+        bytes_per_line = ch * w
+        image = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        return QPixmap.fromImage(image.copy())
+
+    def update_frame(self):
+        frame = self.video.get_frame()
+        if frame is None:
+            return
+
+        self.original_video.setPixmap(
+            self.to_pixmap(frame).scaled(
+                self.original_video.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
         )
 
-        road_display.image = segmented_image
+        roi, roi_mask = self.video.get_roi(frame)
+        self.frame_counter += 1
 
-    prediction_value.configure(
-        text=current_results["prediction"].upper()
-    )
+        if self.frame_counter % 15 == 0:
+            self.start_inference(frame, roi, roi_mask)
 
-    prediction_bar.set({
-        "clean": 0.25,
-        "high": 1.00,
-        "low": 0.50,
-        "medium": 0.75
-    }.get(
-        current_results["prediction"].lower(),
-        0
-    ))
+        with self.inference_lock:
+            current_results = dict(self.model_results)
 
-    coverage_value.configure(
-        text=f"{current_results['coverage']:.1f}%"
-    )
+        if current_results["road_roi"] is not None:
+            self.road_video.setPixmap(
+                self.to_pixmap(current_results["road_roi"]).scaled(
+                    self.road_video.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
 
-    coverage_bar.set(
-        min(current_results["coverage"] / 100, 1.0)
-    )
+        self.prediction_card.update_stat(
+            f"{current_results['prediction'].upper()} ({current_results['confidence']:.0f}%)",
+            {"clean": 0.25, "low": 0.50, "medium": 0.75, "high": 1.0}.get(current_results["prediction"].lower(), 0.0),
+        )
 
-    brush_value.configure(
-        text=f"{current_results['brush_rpm']} RPM"
-    )
+        self.coverage_card.update_stat(
+            f"{current_results['coverage']:.1f}%",
+            current_results["coverage"] / 100,
+        )
 
-    brush_bar.set(
-        min(current_results["brush_rpm"] / 340, 1.0)
-    )
+        self.brush_card.update_stat(
+            f"{current_results['brush_rpm']} RPM",
+            min(current_results["brush_rpm"] / 340, 1.0),
+        )
 
-    fan_value.configure(
-        text=f"{current_results['fan_rpm']} RPM"
-    )
+        self.fan_card.update_stat(
+            f"{current_results['fan_rpm']} RPM",
+            min(current_results["fan_rpm"] / 3000, 1.0),
+        )
 
-    fan_bar.set(
-        min(current_results["fan_rpm"] / 2000, 1.0)
-    )
+        self.power_card.update_stat(
+            f"{current_results['adaptive_power']:.2f} kW",
+            min(current_results["adaptive_power"] / 3.2, 1.0),
+        )
 
-    power_value.configure(
-        text=f"{current_results['adaptive_power']:.2f} kW"
-    )
+        self.saving_card.update_stat(
+            f"{current_results['saving']:.1f}%",
+            min(current_results["saving"] / 100, 1.0),
+        )
 
-    power_bar.set(
-        min(current_results["adaptive_power"] / 3.2, 1.0)
-    )
+    def run_inference(self, frame, roi, roi_mask):
+        prediction_label, confidence_score = self.predictor.predict(roi)
+        road_roi, road_mask, coverage_score = self.segmenter.process(frame, roi_mask)
 
-    saving_value.configure(
-        text=f"{current_results['saving']:.1f} %"
-    )
+        settings = self.controller.get_settings(prediction_label)
+        brush_speed = settings["brush"]
+        fan_speed = settings["fan"]
 
-    saving_bar.set(
-        min(current_results["saving"] / 100, 1.0)
-    )
+        power_result = self.power.calculate(brush_speed, fan_speed)
 
-    app.after(
-        10,
-        update_video
-    )
+        with self.inference_lock:
+            self.model_results.update(
+                {
+                    "prediction": prediction_label,
+                    "confidence": confidence_score,
+                    "coverage": coverage_score,
+                    "brush_rpm": brush_speed,
+                    "fan_rpm": fan_speed,
+                    "adaptive_power": power_result["power"],
+                    "saving": power_result["saving"],
+                    "road_roi": road_roi,
+                }
+            )
 
-# =====================================================
-# START
-# =====================================================
+    def start_inference(self, frame, roi, roi_mask):
+        if self.inference_thread is None or not self.inference_thread.is_alive():
+            self.inference_thread = threading.Thread(
+                target=self.run_inference,
+                args=(frame.copy(), roi.copy(), roi_mask.copy()),
+                daemon=True,
+            )
+            self.inference_thread.start()
 
-update_video()
 
-app.mainloop()
+def main():
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
