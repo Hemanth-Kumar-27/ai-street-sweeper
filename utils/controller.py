@@ -22,22 +22,17 @@ class Controller:
             "debris"
         )
 
-        self.coverage = ctrl.Antecedent(
-            np.arange(0, 101, 1),
-            "coverage"
-        )
-
         # -----------------------------
         # Outputs
         # -----------------------------
 
         self.brush = ctrl.Consequent(
-            np.arange(100, 341, 1),
+            np.arange(30, 201, 1),
             "brush"
         )
 
         self.fan = ctrl.Consequent(
-            np.arange(1200, 3001, 1),
+            np.arange(1000, 2501, 1),
             "fan"
         )
 
@@ -67,53 +62,46 @@ class Controller:
 
         # -----------------------------
 
-        self.coverage["low"] = fuzz.trimf(
-            self.coverage.universe,
-            [0, 0, 40]
-        )
-
-        self.coverage["medium"] = fuzz.trimf(
-            self.coverage.universe,
-            [20, 50, 80]
-        )
-
-        self.coverage["high"] = fuzz.trimf(
-            self.coverage.universe,
-            [60, 100, 100]
-        )
-
-        # -----------------------------
-
-        self.brush["slow"] = fuzz.trimf(
+        self.brush["clean"] = fuzz.trimf(
             self.brush.universe,
-            [100, 140, 180]
+            [30, 30, 60]
+        )
+
+        self.brush["low"] = fuzz.trimf(
+            self.brush.universe,
+            [40, 70, 100]
         )
 
         self.brush["medium"] = fuzz.trimf(
             self.brush.universe,
-            [170, 240, 290]
+            [80, 120, 160]
         )
 
-        self.brush["fast"] = fuzz.trimf(
+        self.brush["high"] = fuzz.trimf(
             self.brush.universe,
-            [270, 320, 340]
+            [140, 200, 200]
         )
 
         # -----------------------------
 
+        self.fan["clean"] = fuzz.trimf(
+            self.fan.universe,
+            [1000, 1000, 1200]
+        )
+
         self.fan["low"] = fuzz.trimf(
             self.fan.universe,
-            [1200, 1500, 1800]
+            [1100, 1300, 1600]
         )
 
         self.fan["medium"] = fuzz.trimf(
             self.fan.universe,
-            [1700, 2200, 2600]
+            [1500, 1800, 2100]
         )
 
         self.fan["high"] = fuzz.trimf(
             self.fan.universe,
-            [2500, 2800, 3000]
+            [2000, 2500, 2500]
         )
 
         # -----------------------------
@@ -124,22 +112,22 @@ class Controller:
 
             ctrl.Rule(
                 self.debris["clean"],
-                (self.brush["slow"], self.fan["low"])
+                (self.brush["clean"], self.fan["clean"])
             ),
 
             ctrl.Rule(
                 self.debris["low"],
-                (self.brush["medium"], self.fan["medium"])
+                (self.brush["low"], self.fan["low"])
             ),
 
             ctrl.Rule(
                 self.debris["medium"],
-                (self.brush["fast"], self.fan["high"])
+                (self.brush["medium"], self.fan["medium"])
             ),
 
             ctrl.Rule(
                 self.debris["high"],
-                (self.brush["fast"], self.fan["high"])
+                (self.brush["high"], self.fan["high"])
             )
 
         ]
@@ -149,6 +137,47 @@ class Controller:
         self.simulation = ctrl.ControlSystemSimulation(
             system
         )
+
+        self.last_brush_rpm = None
+        self.last_fan_rpm = None
+
+    # -----------------------------------------
+
+    def _quantize_output(
+        self,
+        value,
+        step,
+        minimum,
+        maximum
+    ):
+
+        quantized_value = round(value / step) * step
+        return int(np.clip(quantized_value, minimum, maximum))
+
+    # -----------------------------------------
+
+    def _step_toward_target(
+        self,
+        current_value,
+        target_value,
+        step,
+        minimum,
+        maximum
+    ):
+
+        if current_value is None:
+            return int(np.clip(target_value, minimum, maximum))
+
+        if target_value == current_value:
+            return current_value
+
+        delta = target_value - current_value
+
+        if abs(delta) <= step:
+            return int(np.clip(target_value, minimum, maximum))
+
+        next_value = current_value + (step if delta > 0 else -step)
+        return int(np.clip(next_value, minimum, maximum))
 
     # -----------------------------------------
 
@@ -173,14 +202,40 @@ class Controller:
 
         self.simulation.compute()
 
+        target_brush = self._quantize_output(
+            self.simulation.output["brush"],
+            25,
+            30,
+            200
+        )
+
+        target_fan = self._quantize_output(
+            self.simulation.output["fan"],
+            50,
+            1000,
+            2500
+        )
+
+        brush_rpm = self._step_toward_target(
+            self.last_brush_rpm,
+            target_brush,
+            25,
+            30,
+            200
+        )
+
+        fan_rpm = self._step_toward_target(
+            self.last_fan_rpm,
+            target_fan,
+            50,
+            1000,
+            2500
+        )
+
+        self.last_brush_rpm = brush_rpm
+        self.last_fan_rpm = fan_rpm
+
         return {
-
-            "brush": int(
-                self.simulation.output["brush"]
-            ),
-
-            "fan": int(
-                self.simulation.output["fan"]
-            )
-
+            "brush": brush_rpm,
+            "fan": fan_rpm
         }

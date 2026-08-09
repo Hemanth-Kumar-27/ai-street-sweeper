@@ -22,13 +22,15 @@ class Segmentation:
 
         print("Loading SegFormer...")
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         self.processor = SegformerImageProcessor.from_pretrained(
             config.SEGFORMER_MODEL
         )
 
         self.model = AutoModelForSemanticSegmentation.from_pretrained(
             config.SEGFORMER_MODEL
-        )
+        ).to(self.device)
 
         self.model.eval()
 
@@ -54,8 +56,12 @@ class Segmentation:
     def predict_mask(self, roi):
 
         inputs = self.preprocess(roi)
+        inputs = {
+            key: value.to(self.device)
+            for key, value in inputs.items()
+        }
 
-        with torch.no_grad():
+        with torch.inference_mode():
             outputs = self.model(**inputs)
 
         logits = torch.nn.functional.interpolate(
@@ -114,34 +120,52 @@ class Segmentation:
                 dtype=np.uint8
             ) * 255
 
-        # Run SegFormer on the provided frame
-        prediction = self.predict_mask(frame)
+        target_size = (
+            config.SEGMENTATION_WIDTH,
+            config.SEGMENTATION_HEIGHT,
+        )
 
-        # Create road mask
+        resized_frame = cv2.resize(
+            frame,
+            target_size,
+            interpolation=cv2.INTER_AREA,
+        )
+
+        resized_roi_mask = cv2.resize(
+            roi_mask,
+            target_size,
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+        prediction = self.predict_mask(resized_frame)
+
         road_mask = self.create_road_mask(
             prediction
         )
 
-        # Restrict to trapezoid
         road_mask = cv2.bitwise_and(
             road_mask,
-            roi_mask
+            resized_roi_mask
         )
 
-        # Extract road
-        road_roi = cv2.bitwise_and(
-            frame,
-            frame,
-            mask=road_mask
-        )
-
-        # Calculate coverage
         coverage = self.calculate_coverage(
             road_mask
         )
 
+        road_mask_full = cv2.resize(
+            road_mask,
+            (frame.shape[1], frame.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+        road_roi = cv2.bitwise_and(
+            frame,
+            frame,
+            mask=road_mask_full
+        )
+
         return (
             road_roi,
-            road_mask,
+            road_mask_full,
             coverage
         )

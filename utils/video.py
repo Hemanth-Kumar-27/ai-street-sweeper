@@ -6,7 +6,7 @@ Video Processing
 
 import cv2
 import numpy as np
-from AI_Street_Sweeper import config
+import config
 
 
 class VideoProcessor:
@@ -15,6 +15,7 @@ class VideoProcessor:
         print("Video Path:", config.VIDEO_PATH)
 
         self.cap = cv2.VideoCapture(config.VIDEO_PATH)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.roi_mask = None
 
         print("Opened:", self.cap.isOpened())
@@ -59,10 +60,10 @@ class VideoProcessor:
         h, w = size
 
         points = np.array([
-            (int(0.3 * w), int(0.0 * h)),  # Top-left
-            (int(0.6 * w), int(0.0 * h)),  # Top-right
-            (int(0.98 * w), int(0.98 * h)),  # Bottom-right
-            (int(0.02 * w), int(0.98 * h))  # Bottom-left
+            (int(0.35 * w), int(0.25 * h)),  # Top-left
+            (int(0.65 * w), int(0.25 * h)),  # Top-right
+            (int(1 * w), int(1 * h)),  # Bottom-right
+            (int(0 * w), int(1 * h))  # Bottom-left
         ], dtype=np.int32)
 
         mask = np.zeros(

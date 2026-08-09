@@ -13,7 +13,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 # VIDEO_PATH = BASE_DIR / "videos" / "gemini_generated_video.mp4"
-VIDEO_PATH = BASE_DIR / "videos" / "Slowed_Sweeper.mp4"
+VIDEO_PATH = BASE_DIR / "videos" / "Video Project 7.mp4"
 
 MODEL_PATH = BASE_DIR / "model" / "mobilenetv2_debris_classifier.keras"
 
@@ -33,6 +33,9 @@ ROAD_CLASS_ID = 0
 
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 360
+
+SEGMENTATION_WIDTH = 224
+SEGMENTATION_HEIGHT = 128
 
 FRAME_SKIP = 5
 FPS = 30
@@ -59,5 +62,9 @@ INPUT_SIZE = 224
 
 MAX_BRUSH_RPM = 340
 MAX_FAN_RPM = 3000
+
+MAX_BRUSH_POWER = 1.20
+MAX_FAN_POWER = 2.40
+NORMAL_POWER = 3.20
 
 MAX_POWER = 3.20

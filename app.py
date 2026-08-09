@@ -79,6 +79,7 @@ class MainWindow(QMainWindow):
 
         self.frame_counter = 0
         self.inference_lock = threading.Lock()
+        self.inference_busy = False
         self.model_results = {
             "prediction": "clean",
             "confidence": 0,
@@ -90,8 +91,8 @@ class MainWindow(QMainWindow):
             "road_roi": None,
         }
         self.normal_power = self.power.max_power * 0.5
-        self.ui_refresh_ms = 40
-        self.segment_frame_interval = 30
+        self.ui_refresh_ms = 50
+        self.segment_frame_interval = 20
         self.inference_thread = None
 
         self._build_ui()
@@ -216,20 +217,20 @@ class MainWindow(QMainWindow):
             {"clean": 0.25, "low": 0.50, "medium": 0.75, "high": 1.0}.get(current_results["prediction"].lower(), 0.0),
         )
 
-        brush_percent = int(min(current_results["brush_rpm"] / 340, 1.0) * 100)
-        fan_percent = int(min(current_results["fan_rpm"] / 3000, 1.0) * 100)
+        brush_percent = int(min(current_results["brush_rpm"] / 200, 1.0) * 100)
+        fan_percent = int(min(current_results["fan_rpm"] / 2500, 1.0) * 100)
 
         self.brush_card.title_label.setText(f"BRUSH ({brush_percent}%)")
         self.fan_card.title_label.setText(f"FAN ({fan_percent}%)")
 
         self.brush_card.update_stat(
             f"{self.get_level_label(current_results['brush_rpm'], 'brush')} - {current_results['brush_rpm']} RPM",
-            min(current_results["brush_rpm"] / 340, 1.0),
+            min(current_results["brush_rpm"] / 200, 1.0),
         )
 
         self.fan_card.update_stat(
             f"{self.get_level_label(current_results['fan_rpm'], 'fan')} - {current_results['fan_rpm']} RPM",
-            min(current_results["fan_rpm"] / 3000, 1.0),
+            min(current_results["fan_rpm"] / 2500, 1.0),
         )
 
         self.normal_power_card.update_stat(
@@ -249,53 +250,67 @@ class MainWindow(QMainWindow):
 
     def get_level_label(self, rpm: int, control_type: str) -> str:
         if control_type == "brush":
-            if rpm < 180:
+            if rpm < 90:
                 return "LOW"
-            if rpm < 270:
+            if rpm < 150:
                 return "MEDIUM"
             return "HIGH"
 
         if control_type == "fan":
-            if rpm < 1800:
+            if rpm < 1500:
                 return "LOW"
-            if rpm < 2600:
+            if rpm < 2200:
                 return "MEDIUM"
             return "HIGH"
 
         return "UNKNOWN"
 
     def run_inference(self, frame, roi, roi_mask):
-        prediction_label, confidence_score = self.predictor.predict(roi)
-        road_roi, road_mask, coverage_score = self.segmenter.process(frame, roi_mask)
-
-        settings = self.controller.get_settings(prediction_label)
-        brush_speed = settings["brush"]
-        fan_speed = settings["fan"]
-
-        power_result = self.power.calculate(brush_speed, fan_speed)
-
         with self.inference_lock:
-            self.model_results.update(
-                {
-                    "prediction": prediction_label,
-                    "confidence": confidence_score,
-                    "coverage": coverage_score,
-                    "brush_rpm": brush_speed,
-                    "fan_rpm": fan_speed,
-                    "adaptive_power": power_result["power"],
-                    "saving": power_result["saving"],
-                    "road_roi": road_roi,
-                }
-            )
+            if self.inference_busy:
+                return
+            self.inference_busy = True
+
+        try:
+            prediction_label, confidence_score = self.predictor.predict(roi)
+            road_roi, road_mask, coverage_score = self.segmenter.process(frame, roi_mask)
+
+            settings = self.controller.get_settings(prediction_label)
+            brush_speed = settings["brush"]
+            fan_speed = settings["fan"]
+
+            power_result = self.power.calculate(brush_speed, fan_speed)
+
+            with self.inference_lock:
+                self.model_results.update(
+                    {
+                        "prediction": prediction_label,
+                        "confidence": confidence_score,
+                        "coverage": coverage_score,
+                        "brush_rpm": brush_speed,
+                        "fan_rpm": fan_speed,
+                        "adaptive_power": power_result["power"],
+                        "saving": power_result["saving"],
+                        "road_roi": road_roi,
+                    }
+                )
+        finally:
+            with self.inference_lock:
+                self.inference_busy = False
+
+    
 
     def start_inference(self, frame, roi, roi_mask):
-        if self.inference_thread is None or not self.inference_thread.is_alive():
-            self.inference_thread = threading.Thread(
-                target=self.run_inference,
-                args=(frame.copy(), roi.copy(), roi_mask.copy()),
-                daemon=True,
-            )
-            self.inference_thread.start()
+        with self.inference_lock:
+            if self.inference_busy:
+                return
+
+        self.inference_thread = threading.Thread(
+            target=self.run_inference,
+            args=(frame.copy(), roi.copy(), roi_mask.copy()),
+            daemon=True,
+        )
+        self.inference_thread.start()
 
 
 def main():
