@@ -38,70 +38,75 @@ class Controller:
 
         # -----------------------------
         # Membership Functions
+        # (Gaussian, not triangular -- chosen so membership degree
+        # changes smoothly across debris levels instead of the sharp
+        # piecewise-linear edges of a triangular MF, which reduces
+        # abrupt swings in the defuzzified brush/fan target before the
+        # step-limiter in _step_toward_target even sees it)
         # -----------------------------
 
-        self.debris["clean"] = fuzz.trimf(
+        self.debris["clean"] = fuzz.gaussmf(
             self.debris.universe,
-            [0, 0, 1]
+            0, 0.3
         )
 
-        self.debris["low"] = fuzz.trimf(
+        self.debris["low"] = fuzz.gaussmf(
             self.debris.universe,
-            [0, 1, 2]
+            1, 0.3
         )
 
-        self.debris["medium"] = fuzz.trimf(
+        self.debris["medium"] = fuzz.gaussmf(
             self.debris.universe,
-            [1, 2, 3]
+            2, 0.3
         )
 
-        self.debris["high"] = fuzz.trimf(
+        self.debris["high"] = fuzz.gaussmf(
             self.debris.universe,
-            [2, 3, 3]
-        )
-
-        # -----------------------------
-
-        self.brush["clean"] = fuzz.trimf(
-            self.brush.universe,
-            [30, 30, 60]
-        )
-
-        self.brush["low"] = fuzz.trimf(
-            self.brush.universe,
-            [40, 70, 100]
-        )
-
-        self.brush["medium"] = fuzz.trimf(
-            self.brush.universe,
-            [80, 120, 160]
-        )
-
-        self.brush["high"] = fuzz.trimf(
-            self.brush.universe,
-            [140, 200, 200]
+            3, 0.3
         )
 
         # -----------------------------
 
-        self.fan["clean"] = fuzz.trimf(
-            self.fan.universe,
-            [1000, 1000, 1200]
+        self.brush["clean"] = fuzz.gaussmf(
+            self.brush.universe,
+            30, 6
         )
 
-        self.fan["low"] = fuzz.trimf(
-            self.fan.universe,
-            [1100, 1300, 1600]
+        self.brush["low"] = fuzz.gaussmf(
+            self.brush.universe,
+            70, 6
         )
 
-        self.fan["medium"] = fuzz.trimf(
-            self.fan.universe,
-            [1500, 1800, 2100]
+        self.brush["medium"] = fuzz.gaussmf(
+            self.brush.universe,
+            120, 6
         )
 
-        self.fan["high"] = fuzz.trimf(
+        self.brush["high"] = fuzz.gaussmf(
+            self.brush.universe,
+            200, 6
+        )
+
+        # -----------------------------
+
+        self.fan["clean"] = fuzz.gaussmf(
             self.fan.universe,
-            [2000, 2500, 2500]
+            1000, 40
+        )
+
+        self.fan["low"] = fuzz.gaussmf(
+            self.fan.universe,
+            1300, 40
+        )
+
+        self.fan["medium"] = fuzz.gaussmf(
+            self.fan.universe,
+            1800, 40
+        )
+
+        self.fan["high"] = fuzz.gaussmf(
+            self.fan.universe,
+            2500, 40
         )
 
         # -----------------------------

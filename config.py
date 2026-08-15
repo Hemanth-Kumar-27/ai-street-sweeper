@@ -13,7 +13,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 # VIDEO_PATH = BASE_DIR / "videos" / "gemini_generated_video.mp4"
-VIDEO_PATH = BASE_DIR / "videos" / "Video Project 7.mp4"
+VIDEO_PATH = BASE_DIR / "videos" / "Video Project 8.mp4"
 
 MODEL_PATH = BASE_DIR / "model" / "mobilenetv2_debris_classifier.keras"
 
